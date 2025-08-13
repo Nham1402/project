@@ -7,7 +7,7 @@ import time
 fake =  Faker()
 
 producer = KafkaProducer(
-    bootstrap_servers=['master-node:9092'],  # thay bằng IP hoặc hostname Kafka broker
+    bootstrap_servers=['master-node:9092'], 
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 

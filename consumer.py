@@ -1,18 +1,19 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json
+from pyspark.sql.types import StructType, StructField, StringType, FloatType, TimestampType  , DoubleType
 
-# Tạo SparkSession
+
 spark = SparkSession.builder \
     .appName("KafkaDeliveryEventsHCM") \
-    .master("local[*]") \
+    .master("spark://192.168.235.142:7077") \
     .config("spark.jars.packages",
             "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.2") \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
 
-# Schema
-from pyspark.sql.types import StructType, StringType, DoubleType
+
+#define the schema
 schema = StructType() \
     .add("order_id", StringType()) \
     .add("customer_name", StringType()) \
@@ -23,25 +24,23 @@ schema = StructType() \
     .add("delivery_date", StringType()) \
     .add("created_at", StringType()) \
     .add("region", StringType())
-
-# Đọc từ Kafka
+    
 df = spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers",
             "192.168.235.143:9092,192.168.235.144:9092,192.168.235.145:9092") \
-    .option("subscribe", "delivery-events") \
+    .option("subscribe", "delivery_orders") \
     .option("startingOffsets", "latest") \
     .load()
-
-# Parse JSON
+    
 df_parsed = df.selectExpr("CAST(value AS STRING) as json_str") \
     .select(from_json(col("json_str"), schema).alias("data")) \
     .select("data.*")
 
-# Filter region = hcm
+# Lọc region = hcm
 df_hcm = df_parsed.filter(col("region") == "hcm")
 
-# In ra màn hình
+# Xuất ra console
 query = df_hcm.writeStream \
     .outputMode("append") \
     .format("console") \
