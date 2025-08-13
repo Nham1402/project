@@ -9,11 +9,16 @@ spark = SparkSession.builder \
     .appName("KafkaDeliveryEventsHCM") \
     .master("spark://192.168.235.142:7077") \
     .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.2") \
-    .config("spark.sql.shuffle.partitions", "12")\
+    .config("spark.sql.shuffle.partitions", "12") \
     .config("spark.streaming.backpressure.enabled", "true") \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
+
+# ---------------------------
+# Tắt compaction tạm thời để tránh lỗi _spark_metadata
+# ---------------------------
+spark.conf.set("spark.sql.streaming.fileSource.log.compactInterval", "0")
 
 # ---------------------------
 # Schema dữ liệu
@@ -49,9 +54,14 @@ df_parsed = df.selectExpr("CAST(value AS STRING) as json_str") \
     .select("data.*")
 
 # ---------------------------
+# Gom nhiều bản ghi vào 1 partition để giảm small files
+# ---------------------------
+df_parsed_repart = df_parsed.repartition(1)
+
+# ---------------------------
 # Ghi ra HDFS Parquet + checkpoint riêng
 # ---------------------------
-query = df_parsed.writeStream \
+query = df_parsed_repart.writeStream \
     .format("parquet") \
     .option("path", "hdfs://192.168.235.142:9000/user/hadoop/input/delivery-events/") \
     .option("checkpointLocation", "hdfs://192.168.235.142:9000/user/hadoop/checkpoints/delivery-events/") \
