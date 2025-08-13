@@ -9,7 +9,7 @@ spark = SparkSession.builder \
     .appName("KafkaDeliveryEventsHCM") \
     .master("spark://192.168.235.142:7077") \
     .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.2") \
-    .config("spark.sql.shuffle.partitions", "12")  # tăng theo tổng core cluster
+    .config("spark.sql.shuffle.partitions", "12")\
     .config("spark.streaming.backpressure.enabled", "true") \
     .getOrCreate()
 
@@ -38,7 +38,7 @@ df = spark.readStream \
     .option("subscribe", "delivery_orders") \
     .option("startingOffsets", "latest") \
     .option("failOnDataLoss", "false") \
-    .option("maxOffsetsPerTrigger", 1000) \
+    .option("maxOffsetsPerTrigger", 5000) \
     .load()
 
 # ---------------------------
