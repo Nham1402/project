@@ -2,18 +2,22 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json
 from pyspark.sql.types import StructType, StringType, DoubleType
 
+# ---------------------------
 # Tạo SparkSession
+# ---------------------------
 spark = SparkSession.builder \
     .appName("KafkaDeliveryEventsHCM") \
     .master("spark://192.168.235.142:7077") \
     .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.2") \
-    .config("spark.sql.shuffle.partitions", "6") \
+    .config("spark.sql.shuffle.partitions", "12")  # tăng theo tổng core cluster
     .config("spark.streaming.backpressure.enabled", "true") \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
 
+# ---------------------------
 # Schema dữ liệu
+# ---------------------------
 schema = StructType() \
     .add("order_id", StringType()) \
     .add("customer_name", StringType()) \
@@ -25,27 +29,34 @@ schema = StructType() \
     .add("created_at", StringType()) \
     .add("region", StringType())
 
+# ---------------------------
 # Đọc stream từ Kafka
+# ---------------------------
 df = spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "192.168.235.143:9092,192.168.235.144:9092,192.168.235.145:9092") \
     .option("subscribe", "delivery_orders") \
     .option("startingOffsets", "latest") \
+    .option("failOnDataLoss", "false") \
+    .option("maxOffsetsPerTrigger", 1000) \
     .load()
 
+# ---------------------------
 # Parse JSON
+# ---------------------------
 df_parsed = df.selectExpr("CAST(value AS STRING) as json_str") \
-    .select(from_json(col("json_str"), schema).alias("data")) \
+    .select(from_json(col("json_str"), schema, {"mode": "PERMISSIVE"}).alias("data")) \
     .select("data.*")
 
-# Lọc region = hcm
-df_hcm = df_parsed.filter(col("region") == "hcm")
-
-# Xuất ra console
-query = df_hcm.writeStream \
+# ---------------------------
+# Ghi ra HDFS Parquet + checkpoint riêng
+# ---------------------------
+query = df_parsed.writeStream \
+    .format("parquet") \
+    .option("path", "hdfs://192.168.235.142:9000/user/hadoop/input/delivery-events/") \
+    .option("checkpointLocation", "hdfs://192.168.235.142:9000/user/hadoop/checkpoints/delivery-events/") \
+    .option("maxRecordsPerFile", 10000) \
     .outputMode("append") \
-    .format("console") \
-    .option("truncate", False) \
     .start()
 
 query.awaitTermination()

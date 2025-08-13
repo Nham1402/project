@@ -21,7 +21,7 @@ def fake_delivery_data():
         "package_weight_kg": round(random.uniform(0.5, 20.0), 2),
         "delivery_date": fake.date_time_this_year().isoformat(),
         "created_at": fake.date_time_this_year().isoformat(),
-        "region": random.choice(["hcm", "hn", "dn"])  # Thêm region
+        "region": random.choice(["hcm", "hn", "dn"]) 
     }
 
 if __name__ == "__main__":
