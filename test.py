@@ -27,7 +27,8 @@ def fake_delivery_data():
 if __name__ == "__main__":
     topic_name = "delivery_orders"
     while True:
-        data = fake_delivery_data()
-        producer.send(topic_name, value=data)
-        print(f"Sent: {data}")
-        time.sleep(1)
+        for _ in range(100):
+            data = fake_delivery_data()
+            producer.send(topic_name, value=data)
+            print(f"Sent: {data}")
+        time.sleep(0.1)
