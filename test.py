@@ -4,10 +4,10 @@ import json
 import random
 import time
 
-fake =  Faker()
+fake = Faker()
 
 producer = KafkaProducer(
-    bootstrap_servers=['master-node:9092'], 
+    bootstrap_servers=['192.168.235.143:9092', '192.168.235.144:9092', '192.168.235.145:9092'],
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 
@@ -20,8 +20,10 @@ def fake_delivery_data():
         "delivery_status": random.choice(["pending", "shipped", "delivered", "canceled"]),
         "package_weight_kg": round(random.uniform(0.5, 20.0), 2),
         "delivery_date": fake.date_time_this_year().isoformat(),
-        "created_at": fake.date_time_this_year().isoformat()
+        "created_at": fake.date_time_this_year().isoformat(),
+        "region": random.choice(["hcm", "hn", "dn"])  # Thêm region
     }
+
 if __name__ == "__main__":
     topic_name = "delivery_orders"
     while True:
