@@ -1,4 +1,4 @@
-from kafka import kafkaProducer, KafkaConsumer
+from kafka import KafkaProducer
 from faker import Faker
 import json
 import random
