@@ -103,6 +103,6 @@ if __name__ == "__main__":
                 )
             print(f"  ✓ Sent to Kafka topic '{topic_name}'")
             print("-" * 50)
-            time.sleep(1)
+            time.sleep(0.1)
     except Exception as e:
         print(f"Error generating or sending fake records: {e}")
