@@ -30,7 +30,6 @@ def test_minimal_producer():
         producer = KafkaProducer(
             bootstrap_servers=[KAFKA_BROKER],
             value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-            request_timeout_ms=10000,
             acks='1',
             retries=1
         )
