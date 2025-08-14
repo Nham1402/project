@@ -4,7 +4,7 @@ import json
 import time
 
 KAFKA_BROKER = '192.168.235.143:9092'
-TOPIC_NAME = 'delivery_orders'
+TOPIC_NAME = 'test'
 
 def create_topic():
     """Tạo topic nếu chưa tồn tại"""
