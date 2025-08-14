@@ -6,7 +6,7 @@ import random
 from datetime import datetime, timedelta
 
 KAFKA_CONFIG = {
-    'bootstrap.servers': '192.169.235.143:9092',  # Địa chỉ Kafka broker
+    'bootstrap.servers': '192.168.235.143:9092',  # Địa chỉ Kafka broker
     'client.id': 'python-client'
 }
 class KafkaConsumer:
