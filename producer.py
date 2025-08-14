@@ -30,9 +30,10 @@ class DeliveryDataGenerator:
         
         return record
     
-    def generate_multiple_records(self, count=10):
-        """Tạo nhiều bản ghi delivery"""
-        return [self.generate_delivery_record() for _ in range(count)]
+    # def generate_multiple_records(self, count=10):
+    #     """Tạo nhiều bản ghi delivery"""
+    #     return [self.generate_delivery_record() for _ in range(count)]
+    
 KAFKA_CONFIG = {
     'bootstrap.servers': '192.168.235.143:9092',  # Địa chỉ Kafka broker
     'client.id': 'python-client'
@@ -79,37 +80,33 @@ if __name__ == "__main__":
     print("=== PRODUCER - Sending Fake Delivery Data ===")
     producer = KafkaProducer(KAFKA_CONFIG)
     
-    # Tạo và gửi 20 bản ghi fake
-    fake_records = data_generator.generate_multiple_records(20)
     
-    print(f"Generated {len(fake_records)} fake delivery records:")
-    print("-" * 80)
-    
-    for i, record in enumerate(fake_records):
-        # In thông tin record trước khi gửi
-        print(f"Record {i+1}:")
-        print(f"  Order ID: {record['order_id']}")
-        print(f"  Customer: {record['customer_name']}")
-        print(f"  Address: {record['address'][:50]}..." if len(record['address']) > 50 else f"  Address: {record['address']}")
-        print(f"  Phone: {record['phone']}")
-        print(f"  Status: {record['delivery_status']}")
-        print(f"  Weight: {record['package_weight_kg']} kg")
-        print(f"  Delivery Date: {record['delivery_date']}")
-        print(f"  Created At: {record['created_at']}")
-        print(f"  Region: {record['region']}")
-        
-        # Gửi tới Kafka
-        producer.send_message(
-            topic=topic_name,
-            key=record['order_id'],
-            value=record
-        )
-        print(f"  ✓ Sent to Kafka topic '{topic_name}'")
-        print("-" * 50)
-        time.sleep(0.5)  # Ngừng 0.5 giây giữa các message
-    
-    print(f"\n✅ Successfully sent {len(fake_records)} delivery records to Kafka!")
-    
-    print("\n=== CONSUMER ===")
-    print("Starting consumer to read delivery data... (Press Ctrl+C to stop)")
-    time.sleep(2)
+    try:
+        while True:
+            fake_records = data_generator.generate_delivery_record()
+            
+            for i, record in enumerate(fake_records):
+                # In thông tin record trước khi gửi
+                print(f"Record {i+1}:")
+                print(f"  Order ID: {record['order_id']}")
+                print(f"  Customer: {record['customer_name']}")
+                print(f"  Address: {record['address'][:50]}..." if len(record['address']) > 50 else f"  Address: {record['address']}")
+                print(f"  Phone: {record['phone']}")
+                print(f"  Status: {record['delivery_status']}")
+                print(f"  Weight: {record['package_weight_kg']} kg")
+                print(f"  Delivery Date: {record['delivery_date']}")
+                print(f"  Created At: {record['created_at']}")
+                print(f"  Region: {record['region']}")
+                
+                # Gửi tới Kafka
+                producer.send_message(
+                    topic=topic_name,
+                    key=record['order_id'],
+                    value=record
+                )
+                print(f"  ✓ Sent to Kafka topic '{topic_name}'")
+                print("-" * 50)
+                time.sleep(0.5)  # Ngừng 0.5 giây giữa các message
+            time.sleep(1)
+    except Exception as e:
+        print(f"Error generating or sending fake records: {e}")
