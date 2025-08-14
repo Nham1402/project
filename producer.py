@@ -83,30 +83,27 @@ if __name__ == "__main__":
     
     try:
         while True:
-            fake_records = data_generator.generate_delivery_record()
+            record = data_generator.generate_delivery_record()
             
-            for i, record in enumerate(fake_records):
-                # In thông tin record trước khi gửi
-                print(f"Record {i+1}:")
-                print(f"  Order ID: {record['order_id']}")
-                print(f"  Customer: {record['customer_name']}")
-                print(f"  Address: {record['address'][:50]}..." if len(record['address']) > 50 else f"  Address: {record['address']}")
-                print(f"  Phone: {record['phone']}")
-                print(f"  Status: {record['delivery_status']}")
-                print(f"  Weight: {record['package_weight_kg']} kg")
-                print(f"  Delivery Date: {record['delivery_date']}")
-                print(f"  Created At: {record['created_at']}")
-                print(f"  Region: {record['region']}")
+            print(f"Record {i+1}:")
+            print(f"  Order ID: {record['order_id']}")
+            print(f"  Customer: {record['customer_name']}")
+            print(f"  Address: {record['address'][:50]}..." if len(record['address']) > 50 else f"  Address: {record['address']}")
+            print(f"  Phone: {record['phone']}")
+            print(f"  Status: {record['delivery_status']}")
+            print(f"  Weight: {record['package_weight_kg']} kg")
+            print(f"  Delivery Date: {record['delivery_date']}")
+            print(f"  Created At: {record['created_at']}")
+            print(f"  Region: {record['region']}")
                 
                 # Gửi tới Kafka
-                producer.send_message(
+            producer.send_message(
                     topic=topic_name,
                     key=record['order_id'],
                     value=record
                 )
-                print(f"  ✓ Sent to Kafka topic '{topic_name}'")
-                print("-" * 50)
-                time.sleep(0.5)  # Ngừng 0.5 giây giữa các message
+            print(f"  ✓ Sent to Kafka topic '{topic_name}'")
+            print("-" * 50)
             time.sleep(1)
     except Exception as e:
         print(f"Error generating or sending fake records: {e}")
