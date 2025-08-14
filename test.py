@@ -31,4 +31,4 @@ if __name__ == "__main__":
             data = fake_delivery_data()
             producer.send(topic_name, value=data)
             print(f"Sent: {data}")
-        time.sleep(0.1)
+        time.sleep(0.5)
