@@ -85,8 +85,7 @@ if __name__ == "__main__":
         while True:
             record = data_generator.generate_delivery_record()
             
-            print(f"Record {i+1}:")
-            print(f"  Order ID: {record['order_id']}")
+            print(f"Order ID: {record['order_id']}")
             print(f"  Customer: {record['customer_name']}")
             print(f"  Address: {record['address'][:50]}..." if len(record['address']) > 50 else f"  Address: {record['address']}")
             print(f"  Phone: {record['phone']}")
