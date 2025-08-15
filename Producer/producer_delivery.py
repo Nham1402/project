@@ -8,7 +8,7 @@ from model.delivery_schemas import DeliveryDataGenerator
 import random
 
 class DeliveryEventProducer:
-    def __init__(self, bootstrap_servers=['localhost:9092']):
+    def __init__(self, bootstrap_servers=['192.169.235.143:9092' , '192.169.235.144:9092','192.169.235.145:9092']):
         self.producer = KafkaProducer(
             bootstrap_servers=bootstrap_servers,
             value_serializer=lambda x: json.dumps(x).encode('utf-8'),
