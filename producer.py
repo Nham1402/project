@@ -78,9 +78,7 @@ if __name__ == "__main__":
     
     # Tạo Producer và gửi fake delivery data
     print("=== PRODUCER - Sending Fake Delivery Data ===")
-    producer = KafkaProducer(KAFKA_CONFIG)
-    
-    
+    producer = KafkaProducer( )
     try:
         while True:
             record = data_generator.generate_delivery_record()
