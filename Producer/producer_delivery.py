@@ -10,7 +10,7 @@ import random
 
 # --- FIX sys.path để import module ngoài folder Producer ---
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from model.delivery_schemas import DeliveryDataGenerator
+from model.delivery_generation import DeliveryDataGenerator
 
 # --- Kafka ---
 from confluent_kafka import Producer, KafkaException
