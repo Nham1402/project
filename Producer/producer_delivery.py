@@ -1,5 +1,5 @@
 # producers/delivery_event_producer.py
-from confluent_kafka import KafkaProducer, KafkaException
+from confluent_kafka import Producer, KafkaException
 from confluent_kafka.admin import AdminClient, NewTopic
 import json
 import time
@@ -11,13 +11,9 @@ import random
 class DeliveryEventProducer:
     def __init__(self, bootstrap_servers=None):
         if bootstrap_servers is None:
-            bootstrap_servers = ['192.168.235.136:9092']
+            bootstrap_servers = ['192.168.235.136:9092', '192.168.235.147:9092', '192.168.235.148:9092']
         self.bootstrap_servers = bootstrap_servers
-        self.producer = KafkaProducer(
-            bootstrap_servers=bootstrap_servers,
-            value_serializer=lambda x: json.dumps(x).encode('utf-8'),
-            key_serializer=lambda x: x.encode('utf-8') if x else None
-        )
+        self.producer = Producer({'bootstrap.servers': ','.join(bootstrap_servers)})
         self.generator = DeliveryDataGenerator()
         self.running = True
 
@@ -40,10 +36,13 @@ class DeliveryEventProducer:
             print(f"⚠️ Failed to create topic '{topic_name}': {e}")
 
     def produce_order_events(self, topic='order_events', rate=50):
-        """Produce order events at specified rate"""
         print(f"🚚 Starting order events producer at {rate} events/second...")
         order_counter = 1
         customer_counter = 1
+
+        def delivery_report(err, msg):
+            if err:
+                print(f"Delivery failed for {msg.key()}: {err}")
 
         while self.running:
             try:
@@ -51,7 +50,9 @@ class DeliveryEventProducer:
                 customer_id = f"customer_{customer_counter:06d}"
                 event = self.generator.generate_order_event(order_id, customer_id)
 
-                self.producer.send(topic, key=order_id, value=event)
+                self.producer.produce(topic, key=order_id.encode('utf-8'), value=json.dumps(event).encode('utf-8'),
+                                      callback=delivery_report)
+                self.producer.poll(0)
 
                 order_counter += 1
                 if order_counter % 100 == 0:
@@ -65,10 +66,13 @@ class DeliveryEventProducer:
                 time.sleep(1)
 
     def produce_gps_tracking(self, topic='gps_tracking', rate=100):
-        """Produce GPS tracking events"""
         print(f"📍 Starting GPS tracking producer at {rate} events/second...")
         drivers = [f"driver_{i:03d}" for i in range(1, 51)]
         vehicles = [f"vehicle_{i:03d}" for i in range(1, 51)]
+
+        def delivery_report(err, msg):
+            if err:
+                print(f"Delivery failed for {msg.key()}: {err}")
 
         while self.running:
             try:
@@ -76,7 +80,9 @@ class DeliveryEventProducer:
                     driver_id = random.choice(drivers)
                     vehicle_id = random.choice(vehicles)
                     tracking_data = self.generator.generate_gps_tracking(driver_id, vehicle_id)
-                    self.producer.send(topic, key=driver_id, value=tracking_data)
+                    self.producer.produce(topic, key=driver_id.encode('utf-8'), value=json.dumps(tracking_data).encode('utf-8'),
+                                          callback=delivery_report)
+                    self.producer.poll(0)
 
                 time.sleep(10)
             except KeyboardInterrupt:
@@ -86,11 +92,14 @@ class DeliveryEventProducer:
                 time.sleep(1)
 
     def produce_customer_behavior(self, topic='customer_behavior', rate=30):
-        """Produce customer behavior events"""
         print(f"👤 Starting customer behavior producer at {rate} events/second...")
         event_types = ['app_open', 'search', 'order_create', 'track_order', 'rate_delivery']
         devices = ['mobile', 'web']
         os_types = ['iOS', 'Android', 'Web']
+
+        def delivery_report(err, msg):
+            if err:
+                print(f"Delivery failed for {msg.key()}: {err}")
 
         while self.running:
             try:
@@ -116,7 +125,9 @@ class DeliveryEventProducer:
                     })
                 }
 
-                self.producer.send(topic, key=customer_id, value=event)
+                self.producer.produce(topic, key=customer_id.encode('utf-8'), value=json.dumps(event).encode('utf-8'),
+                                      callback=delivery_report)
+                self.producer.poll(0)
                 time.sleep(1/rate)
             except KeyboardInterrupt:
                 break
@@ -125,8 +136,6 @@ class DeliveryEventProducer:
                 time.sleep(1)
 
     def start_all_producers(self):
-        """Start all producers in separate threads"""
-        # Tạo topic nếu chưa có
         self.create_topic_if_not_exists('order_events')
         self.create_topic_if_not_exists('gps_tracking')
         self.create_topic_if_not_exists('customer_behavior')
