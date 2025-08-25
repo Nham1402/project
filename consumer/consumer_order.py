@@ -9,7 +9,7 @@ from pyspark.sql.functions import *
 from pyspark.sql.types import *
 
 KAFKA_CONFIG = {
-    'bootstrap.servers': '192.168.235.143:9092',  # Địa chỉ Kafka broker
+    'bootstrap.servers': '192.168.235.136:9092',  # Địa chỉ Kafka broker
     'client.id': 'python-client'
 }
 class KafkaConsumer:
