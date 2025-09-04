@@ -55,7 +55,7 @@ class TransactionProducer:
         else:
             print(f"✅ Message transation to {msg.topic()} [{msg.partition()}] at offset {msg.offset()}")
 
-    def producer_transaction(self, topic='transaction_data', rate=50):
+    def producer_transaction(self, topic='transaction_data', rate=10):
         """Generate transaction data and send to Kafka"""
         while self.running:
             try:
@@ -87,7 +87,7 @@ class TransactionProducer:
         # Tạo topic nếu chưa có
         self.create_topic_if_not_exists('transaction_data')
 
-        thread = threading.Thread(target=self.producer_transaction, kwargs={'rate': 50})
+        thread = threading.Thread(target=self.producer_transaction, kwargs={'rate': 10})
         thread.daemon = True
         thread.start()
 
