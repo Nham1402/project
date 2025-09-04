@@ -1,1 +1,0 @@
-# generation information customer

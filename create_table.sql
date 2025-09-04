@@ -77,6 +77,32 @@ CREATE TABLE dim_customer (
         DEFERRABLE INITIALLY DEFERRED
 );
 
+-- DIM_ACCOUNT - account dimension
+CREATE TABLE Dim_Account_Extended (
+    account_key SERIAL PRIMARY KEY ,
+    account_id VARCHAR(30) UNIQUE NOT NULL,
+    account_number VARCHAR(50) NOT NULL,
+    account_type VARCHAR(30) NOT NULL, -- SAVINGS, CURRENT, FIXED_DEPOSIT, LOAN
+    customer_key INTEGER, 
+    currency_key INTEGER,
+    account_status VARCHAR(20) NOT NULL, -- ACTIVE, INACTIVE, CLOSED, SUSPENDED
+    account_condition VARCHAR(30), -- NORMAL, DORMANT, FROZEN, BLOCKED
+    account_opening_date DATE NOT NULL,
+    account_closing_date DATE,
+    last_transaction_date DATE,
+    opening_balance DECIMAL(18,4) DEFAULT 0,
+    current_balance DECIMAL(18,4),
+    available_balance DECIMAL(18,4),
+    minimum_balance DECIMAL(18,4) DEFAULT 0,
+    maximum_balance DECIMAL(18,4),
+    monthly_fee DECIMAL(10,4) DEFAULT 0,
+    annual_fee DECIMAL(10,4) DEFAULT 0,
+    channel_opened VARCHAR(20), -- BRANCH, ONLINE, MOBILE, PHONE
+    effective_date DATE NOT NULL,
+    expiry_date DATE DEFAULT '9999-12-31',
+    created_by VARCHAR(50),
+    updated_by VARCHAR(50)
+);
 -- DIM_PRODUCT - Product Dimension
 CREATE TABLE dim_product (
     product_key SERIAL PRIMARY KEY,
