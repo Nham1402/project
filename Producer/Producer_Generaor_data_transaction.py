@@ -6,10 +6,9 @@ import random
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Local imports
-from Generation_data.Fact_transaction import GenerationTranaction
+# Thêm sys.path để import local module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from model.delivery_generation import DeliveryDataGenerator
+from Generation_data.Fact_transaction import GenerationTranaction
 
 # Kafka
 from confluent_kafka import Producer, KafkaException
@@ -17,16 +16,18 @@ from confluent_kafka.admin import AdminClient, NewTopic
 
 
 class TransactionProducer:
-    def __init__(self, bootstrap_servers=None):
+    def __init__(self, conn_params, bootstrap_servers=None):
         if bootstrap_servers is None:
             bootstrap_servers = [
                 '192.168.235.136:9092',
                 '192.168.235.147:9092',
                 '192.168.235.148:9092'
             ]
+        self.conn_params = conn_params
         self.bootstrap_servers = bootstrap_servers
         self.producer = Producer({'bootstrap.servers': ','.join(bootstrap_servers)})
-        self.generator = DeliveryDataGenerator()
+        # Truyền conn_params khi khởi tạo generator
+        self.generator = GenerationTranaction(conn_params)
         self.running = True
 
     def create_topic_if_not_exists(self, topic_name, num_partitions=3, replication_factor=3):
@@ -47,26 +48,30 @@ class TransactionProducer:
         except KafkaException as e:
             print(f"⚠️ Failed to create topic '{topic_name}': {e}")
 
-    def delivery_report(self, err, msg):
+    def transation_report(self, err, msg):
         """Callback xác nhận message gửi thành công hoặc thất bại"""
         if err is not None:
-            print(f"❌ Delivery failed: {err}")
+            print(f"❌ transation failed: {err}")
         else:
-            print(f"✅ Message delivered to {msg.topic()} [{msg.partition()}] at offset {msg.offset()}")
+            print(f"✅ Message transation to {msg.topic()} [{msg.partition()}] at offset {msg.offset()}")
 
     def producer_transaction(self, topic='transaction_data', rate=50):
         """Generate transaction data and send to Kafka"""
         while self.running:
             try:
                 # Sinh dữ liệu giả từ generator
-                data = self.generator.generate_transaction()
+                data = self.generator.generator_data_transaction()
 
-                # Convert thành JSON string
+                # Convert thành string (nên dùng json.dumps nếu là dict)
                 message = str(data)
 
                 # Gửi vào Kafka
-                self.producer.produce(topic, key=str(random.randint(1000, 9999)), value=message,
-                                      callback=self.delivery_report)
+                self.producer.produce(
+                    topic,
+                    key=str(data['transaction_id']),
+                    value=message,
+                    callback=self.transation_report
+                )
 
                 # Flush định kỳ
                 self.producer.poll(0)
@@ -113,5 +118,5 @@ if __name__ == "__main__":
 
     print("✅ DB Connection params loaded from .env (password hidden)")
 
-    producer = TransactionProducer()
+    producer = TransactionProducer(conn_params)
     producer.start_all_producers()

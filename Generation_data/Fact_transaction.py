@@ -131,16 +131,3 @@ class GenerationTranaction :
             "processed_timestamp": processed_timestamp,
             "updated_timestamp": updated_timestamp
         }
-          
-if __name__ == "__main__":  
-    load_dotenv()
-    
-    conn_params = {
-        "host": os.getenv("DB_HOST"),
-        "port": os.getenv("DB_PORT"),
-        "dbname": os.getenv("DB_NAME"),
-        "user": os.getenv("DB_USER"),
-        "password": os.getenv("DB_PASS")
-    }
-    info_transaction = GenerationTranaction(conn_params)
-    print(info_transaction.generator_data_transaction())
