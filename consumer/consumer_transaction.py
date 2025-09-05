@@ -1,4 +1,7 @@
 from confluent_kafka import Consumer, KafkaError
+from dotenv import load_dotenv
+import os   
+
 
 def create_consumer():
     conf = {
@@ -9,6 +12,9 @@ def create_consumer():
     consumer = Consumer(conf)
     consumer.subscribe(['transaction_data'])
     return consumer
+
+def caculate_amount():
+    pass
 
 def consume_messages():
     consumer = create_consumer()
@@ -36,4 +42,14 @@ def consume_messages():
         consumer.close()
 
 if __name__ == "__main__":
+    load_dotenv()
+    conn_params ={
+        "host":os.getenv("DB_HOST"),
+        "port":os.getenv("DB_PORT"),
+        "user":os.getenv("DB_USER"),
+        "password":os.getenv("DB_PASS"),
+        "dbname":os.getenv("DB_NAME")
+    }
     consume_messages()
+
+ 

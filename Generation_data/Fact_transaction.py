@@ -100,7 +100,6 @@ class GenerationTranaction :
         net_amount = self.amount(transaction_type,transaction_status,transaction_amount, fee_amount, tax_amount) 
         currency = "VND"
         account_number = self.transaction_account_number(transaction_category)
-
         channel = random.choice(self.channel)
         description = f"Giao dịch {transaction_type} qua {channel}"
         created_timestamp = datetime.now()
