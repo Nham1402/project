@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import os
 import logging
 import time
+import traceback
 
 # ===============================
 # Logging setup
@@ -112,7 +113,6 @@ def write_realtime_batch(batch_df, batch_id):
     except Exception as e:
         processing_time = time.time() - start_time
         logger.error(f"❌ Batch {batch_id} failed after {processing_time:.2f}s: {e}")
-        import traceback
         logger.error(f"❌ Error details: {traceback.format_exc()}")
 
 # ===============================
