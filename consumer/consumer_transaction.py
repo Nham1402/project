@@ -6,7 +6,7 @@ import os
 import logging
 
 # ===============================
-# Logging setup - Thêm chi tiết hơn
+# Logging setup
 # ===============================
 logging.basicConfig(
     level=logging.INFO,
@@ -14,21 +14,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Load biến môi trường từ .env
+# Load environment variables
 load_dotenv(dotenv_path=os.path.join("/home/hadoop/project", ".env"))
 
 # ===============================
-# Config - Thêm validation
+# Config for Realtime
 # ===============================
 KAFKA_CONFIG = {
     'bootstrap.servers': '192.168.235.136:9092,192.168.235.147:9092,192.168.235.148:9092',
 }
-
-# Kiểm tra các biến môi trường
-required_env_vars = ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASS']
-for var in required_env_vars:
-    if not os.getenv(var):
-        raise ValueError(f"❌ Thiếu biến môi trường: {var}")
 
 POSTGRES_CONFIG = {
     "url": f"jdbc:postgresql://{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}",
@@ -38,9 +32,8 @@ POSTGRES_CONFIG = {
     "driver": "org.postgresql.Driver"
 }
 
-# Log config để debug
-logger.info(f"📊 Database URL: {POSTGRES_CONFIG['url']}")
-logger.info(f"📊 Database Table: {POSTGRES_CONFIG['table']}")
+logger.info(f"🔧 Database: {POSTGRES_CONFIG['url']}")
+logger.info(f"🔧 Table: {POSTGRES_CONFIG['table']}")
 
 TRANSACTION_SCHEMA = StructType([
     StructField("account_key", IntegerType(), True),
@@ -67,212 +60,227 @@ TRANSACTION_SCHEMA = StructType([
 ])
 
 # ===============================
-# Test kết nối database
+# Realtime Write Function
 # ===============================
-def test_database_connection(spark):
-    """Test kết nối database trước khi streaming"""
+def write_realtime_batch(batch_df, batch_id):
+    """
+    Realtime batch processing - xử lý ngay khi có data
+    """
+    start_time = time.time()
+    
     try:
-        logger.info("🔍 Kiểm tra kết nối database...")
+        row_count = batch_df.count()
+        logger.info(f"⚡ Batch {batch_id}: Processing {row_count} records")
         
-        # Tạo DataFrame test đơn giản
-        test_data = [(1, "test", 100.0)]
-        test_schema = StructType([
-            StructField("id", IntegerType(), True),
-            StructField("name", StringType(), True),
-            StructField("amount", DoubleType(), True)
-        ])
+        if row_count == 0:
+            logger.info(f"⚡ Batch {batch_id}: Empty batch - skipping")
+            return
         
-        test_df = spark.createDataFrame(test_data, test_schema)
+        # Quick validation - chỉ check những field quan trọng nhất
+        valid_df = batch_df.filter(
+            col("transaction_id").isNotNull() &
+            col("transaction_amount").isNotNull()
+        )
         
-        # Thử đọc từ database (không cần table tồn tại)
-        try:
-            spark.read \
-                .format("jdbc") \
-                .option("url", POSTGRES_CONFIG["url"]) \
-                .option("user", POSTGRES_CONFIG["user"]) \
-                .option("password", POSTGRES_CONFIG["password"]) \
-                .option("driver", POSTGRES_CONFIG["driver"]) \
-                .option("query", "SELECT 1 as test") \
-                .load() \
-                .show()
-            
-            logger.info("✅ Kết nối database thành công!")
-            return True
-            
-        except Exception as db_error:
-            logger.error(f"❌ Lỗi kết nối database: {db_error}")
-            return False
-            
+        valid_count = valid_df.count()
+        
+        if valid_count == 0:
+            logger.warning(f"⚡ Batch {batch_id}: No valid records")
+            return
+        
+        # Add processing timestamp
+        final_df = valid_df.withColumn("realtime_processed_at", current_timestamp())
+        
+        # Log sample data (only first record for speed)
+        if logger.isEnabledFor(logging.DEBUG):
+            sample = final_df.limit(1).collect()[0]
+            logger.debug(f"⚡ Sample: {sample['transaction_id']} - ${sample['transaction_amount']}")
+        
+        # Write to PostgreSQL with optimized settings
+        final_df.write \
+            .format("jdbc") \
+            .option("url", POSTGRES_CONFIG["url"]) \
+            .option("dbtable", POSTGRES_CONFIG["table"]) \
+            .option("user", POSTGRES_CONFIG["user"]) \
+            .option("password", POSTGRES_CONFIG["password"]) \
+            .option("driver", POSTGRES_CONFIG["driver"]) \
+            .option("batchsize", "500") \
+            .option("isolationLevel", "READ_UNCOMMITTED") \
+            .option("numPartitions", "1") \
+            .option("rewriteBatchedStatements", "true") \
+            .mode("append") \
+            .save()
+        
+        processing_time = time.time() - start_time
+        logger.info(f"✅ Batch {batch_id}: Inserted {valid_count} records in {processing_time:.2f}s")
+        
     except Exception as e:
-        logger.error(f"❌ Lỗi test database: {e}")
-        return False
+        processing_time = time.time() - start_time
+        logger.error(f"❌ Batch {batch_id} failed after {processing_time:.2f}s: {e}")
+        # Log lỗi nhưng không crash stream
+        import traceback
+        logger.error(f"❌ Error details: {traceback.format_exc()}")
 
 # ===============================
-# Spark Streaming class - Cải thiện
+# Realtime Streaming Class
 # ===============================
-class SparkStreaming:
-    def __init__(self, kafka_config, topics):
+class RealtimeSparkStreaming:
+    def __init__(self):
+        # Optimized Spark config for realtime
         self.spark = SparkSession.builder \
-            .appName("KafkaSparkToPostgres") \
+            .appName("RealtimeKafkaToPostgres") \
             .config("spark.sql.shuffle.partitions", "2") \
             .config("spark.sql.adaptive.enabled", "true") \
             .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
             .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
+            .config("spark.sql.execution.arrow.pyspark.enabled", "true") \
+            .config("spark.sql.streaming.forceDeleteTempCheckpointLocation", "true") \
             .getOrCreate()
 
-        self.spark.sparkContext.setLogLevel("WARN")
-        self.kafka_config = kafka_config
-        self.topics = topics
-        
-        # Test kết nối database
-        if not test_database_connection(self.spark):
-            raise Exception("Không thể kết nối database")
+        self.spark.sparkContext.setLogLevel("ERROR")  # Reduce noise
+        logger.info("⚡ Spark session created for realtime processing")
 
-    def read_stream(self):
+    def create_realtime_stream(self):
+        """
+        Tạo stream optimized cho realtime processing
+        """
         try:
-            logger.info(f"📡 Đang kết nối Kafka: {self.kafka_config['bootstrap.servers']}")
-            logger.info(f"📡 Topics: {self.topics}")
+            logger.info("⚡ Creating realtime Kafka stream...")
             
-            df = self.spark.readStream \
+            # Read from Kafka with realtime settings
+            kafka_df = self.spark.readStream \
                 .format("kafka") \
-                .option("kafka.bootstrap.servers", self.kafka_config['bootstrap.servers']) \
-                .option("subscribe", ",".join(self.topics)) \
+                .option("kafka.bootstrap.servers", KAFKA_CONFIG['bootstrap.servers']) \
+                .option("subscribe", "transaction_data") \
                 .option("startingOffsets", "latest") \
                 .option("failOnDataLoss", "false") \
                 .option("maxOffsetsPerTrigger", "1000") \
+                .option("kafka.consumer.cache.enabled", "false") \
                 .load()
 
-            # Thêm debug để xem raw data từ Kafka
-            def debug_kafka_data(batch_df, batch_id):
-                logger.info(f"🔍 Debug Kafka Batch {batch_id}")
-                logger.info(f"📊 Raw Kafka records: {batch_df.count()}")
-                if batch_df.count() > 0:
-                    batch_df.select("key", "value", "timestamp").show(5, truncate=False)
-
-            # Debug stream (tạm thời)
-            debug_query = df.writeStream \
-                .foreachBatch(debug_kafka_data) \
-                .outputMode("append") \
-                .option("checkpointLocation", "/tmp/debug_checkpoint") \
-                .trigger(processingTime="30 seconds") \
-                .start()
-
-            # Xử lý dữ liệu chính
-            processed_df = df.select(
+            # Parse JSON immediately
+            parsed_df = kafka_df.select(
                 col("key").cast("string"),
                 from_json(col("value").cast("string"), TRANSACTION_SCHEMA).alias("data"),
                 col("timestamp").alias("kafka_timestamp")
             ).select("key", "data.*", "kafka_timestamp")
 
-            logger.info("✅ Kafka stream đã được tạo thành công")
-            return processed_df
+            logger.info("✅ Realtime Kafka stream created successfully")
+            return parsed_df
 
         except Exception as e:
-            logger.error(f"❌ Lỗi khi tạo Kafka stream: {e}")
+            logger.error(f"❌ Failed to create Kafka stream: {e}")
+            raise
+
+    def start_realtime_processing(self):
+        """
+        Bắt đầu realtime processing
+        """
+        try:
+            # Create stream
+            df = self.create_realtime_stream()
+            
+            # Start realtime processing with minimal trigger interval
+            query = df.writeStream \
+                .foreachBatch(write_realtime_batch) \
+                .outputMode("append") \
+                .option("checkpointLocation", "/tmp/realtime_checkpoint") \
+                .trigger(processingTime="2 seconds") \
+                .start()
+
+            logger.info("⚡ REALTIME PROCESSING STARTED!")
+            logger.info("⚡ Processing every 2 seconds for minimal latency")
+            logger.info("⚡ Press Ctrl+C to stop...")
+
+            # Monitor processing
+            import time
+            last_progress_time = 0
+            
+            while query.isActive:
+                time.sleep(5)  # Check every 5 seconds
+                
+                progress = query.lastProgress
+                if progress:
+                    current_time = time.time()
+                    if current_time - last_progress_time > 30:  # Log every 30 seconds
+                        input_rate = progress.get('inputRowsPerSecond', 0)
+                        processing_rate = progress.get('processedRowsPerSecond', 0)
+                        batch_duration = progress.get('durationMs', {}).get('triggerExecution', 0)
+                        
+                        logger.info(f"⚡ REALTIME STATS:")
+                        logger.info(f"   📊 Input Rate: {input_rate:.1f} records/sec")
+                        logger.info(f"   📊 Processing Rate: {processing_rate:.1f} records/sec")
+                        logger.info(f"   📊 Batch Duration: {batch_duration}ms")
+                        
+                        last_progress_time = current_time
+
+            query.awaitTermination()
+
+        except KeyboardInterrupt:
+            logger.info("⚡ Stopping realtime processing...")
+            query.stop()
+        except Exception as e:
+            logger.error(f"❌ Realtime processing error: {e}")
             raise
 
 # ===============================
-# Write batch to Postgres - Cải thiện
+# Quick Health Check
 # ===============================
-def write_to_postgres(batch_df, batch_id):
+def quick_health_check():
+    """
+    Quick health check trước khi start realtime processing
+    """
     try:
-        logger.info(f"🔄 Bắt đầu xử lý Batch {batch_id}")
+        logger.info("🏥 Running quick health check...")
         
-        # Debug: In schema và sample data
-        logger.info(f"📊 Schema: {batch_df.schema}")
+        # Check environment variables
+        required_vars = ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASS']
+        missing_vars = [var for var in required_vars if not os.getenv(var)]
         
-        row_count = batch_df.count()
-        logger.info(f"📊 Batch {batch_id}: {row_count} records")
+        if missing_vars:
+            logger.error(f"❌ Missing environment variables: {missing_vars}")
+            return False
         
-        if row_count > 0:
-            # Hiển thị sample data
-            logger.info("📋 Sample data:")
-            batch_df.show(5, truncate=False)
-            
-            # Kiểm tra data quality
-            valid_transactions = batch_df.filter(
-                col("transaction_id").isNotNull() &
-                col("transaction_amount").isNotNull() &
-                (col("transaction_amount") > 0)
-            )
-            
-            valid_count = valid_transactions.count()
-            logger.info(f"📊 Valid records: {valid_count}/{row_count}")
-            
-            if valid_count > 0:
-                # Thêm timestamp
-                final_df = valid_transactions.withColumn("created_at", current_timestamp())
-                
-                logger.info(f"💾 Đang ghi {valid_count} records vào database...")
-                
-                final_df.write \
-                    .format("jdbc") \
-                    .option("url", POSTGRES_CONFIG["url"]) \
-                    .option("dbtable", POSTGRES_CONFIG["table"]) \
-                    .option("user", POSTGRES_CONFIG["user"]) \
-                    .option("password", POSTGRES_CONFIG["password"]) \
-                    .option("driver", POSTGRES_CONFIG["driver"]) \
-                    .option("batchsize", "1000") \
-                    .option("isolationLevel", "NONE") \
-                    .option("numPartitions", "1") \
-                    .mode("append") \
-                    .save()
-
-                logger.info(f"✅ Đã ghi thành công batch {batch_id} - {valid_count} records")
-            else:
-                logger.warning(f"⚠️ Batch {batch_id}: Không có dữ liệu hợp lệ")
-        else:
-            logger.info(f"⚠️ Batch {batch_id} trống, bỏ qua")
-
+        # Quick Spark test
+        spark_test = SparkSession.builder.appName("HealthCheck").getOrCreate()
+        test_df = spark_test.sql("SELECT 1 as health_check")
+        assert test_df.count() == 1
+        
+        logger.info("✅ Health check passed - ready for realtime processing!")
+        return True
+        
     except Exception as e:
-        logger.error(f"❌ Lỗi khi ghi batch {batch_id}: {e}")
-        # Log chi tiết lỗi
-        import traceback
-        logger.error(f"❌ Stacktrace: {traceback.format_exc()}")
+        logger.error(f"❌ Health check failed: {e}")
+        return False
 
 # ===============================
-# Main - Cải thiện
+# Main Function
 # ===============================
+import time
+
 def main():
+    """
+    Main realtime processing
+    """
     try:
-        logger.info("🚀 Khởi tạo Spark Streaming...")
+        logger.info("🚀 STARTING REALTIME KAFKA TO POSTGRES STREAMING")
+        logger.info("=" * 60)
         
-        # Tạo thư mục checkpoint nếu chưa tồn tại
-        checkpoint_dir = "/user/hadoop/checkpoints/transaction_data"
-        logger.info(f"📁 Checkpoint directory: {checkpoint_dir}")
+        # Quick health check
+        if not quick_health_check():
+            logger.error("❌ Health check failed - aborting")
+            return
         
-        stream = SparkStreaming(KAFKA_CONFIG, ['transaction_data'])
-        df = stream.read_stream()
-
-        # Data quality checks
-        df_filtered = df.filter(
-            col("transaction_id").isNotNull() &
-            col("transaction_amount").isNotNull() &
-            (col("transaction_amount") > 0)
-        )
-
-        query = df_filtered.writeStream \
-            .foreachBatch(write_to_postgres) \
-            .outputMode("append") \
-            .option("checkpointLocation", checkpoint_dir) \
-            .trigger(processingTime="10 seconds") \
-            .start()
-
-        logger.info("✅ Streaming đã bắt đầu. Nhấn Ctrl+C để dừng...")
+        # Initialize realtime streaming
+        realtime_stream = RealtimeSparkStreaming()
         
-        # Monitor streaming
-        while query.isActive:
-            progress = query.lastProgress
-            if progress:
-                logger.info(f"📊 Streaming Progress: {progress}")
-            query.awaitTermination(timeout=30)
-
+        # Start processing
+        realtime_stream.start_realtime_processing()
+        
     except KeyboardInterrupt:
-        logger.info("🛑 Đang dừng streaming...")
-        if 'query' in locals():
-            query.stop()
+        logger.info("🛑 Realtime processing stopped by user")
     except Exception as e:
-        logger.error(f"❌ Lỗi trong main: {e}")
+        logger.error(f"❌ Fatal error in main: {e}")
         import traceback
         logger.error(f"❌ Stacktrace: {traceback.format_exc()}")
         raise
