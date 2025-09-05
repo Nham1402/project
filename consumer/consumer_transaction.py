@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Load biến môi trường từ .env
-load_dotenv()
+load_dotenv(dotenv_path=os.path.basename("/home/hadoop/project/.env"))
 
 # ===============================
 # Config
