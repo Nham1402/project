@@ -174,7 +174,7 @@ class RealtimeSparkStreaming:
 def main():
     logger.info("🚀 STARTING REALTIME KAFKA TO POSTGRES STREAMING")
     realtime_stream = RealtimeSparkStreaming()
-    realtime_stream.start_realtime_processing()
+    realtime_stream.start_realtime_processing()  
 
 if __name__ == "__main__":
     main()
