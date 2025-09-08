@@ -1,7 +1,6 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json, regexp_replace
 from pyspark.sql.types import *
-from pyspark.sql.streaming import ForeachWriter
 import logging
 import traceback
 
@@ -23,7 +22,7 @@ TRANSACTION_SCHEMA = StructType([
     StructField("account_key", IntegerType(), True),
     StructField("customer_key", IntegerType(), True),
     StructField("location_key", IntegerType(), True),
-    StructField("event_key", StringType(), True),   # dùng StringType cho an toàn
+    StructField("event_key", StringType(), True),   # StringType để tránh parse lỗi
     StructField("application_key", IntegerType(), True),
     StructField("transaction_id", StringType(), True),
     StructField("reference_number", StringType(), True),
@@ -42,16 +41,6 @@ TRANSACTION_SCHEMA = StructType([
     StructField("processed_timestamp", TimestampType(), True),
     StructField("updated_timestamp", TimestampType(), True)
 ])
-
-# ================== Custom writer ==================
-class ConsoleWriter(ForeachWriter):
-    def open(self, partition_id, epoch_id):
-        return True
-    def process(self, row):
-        print(f"💳 Transaction received: {row.asDict()}")
-    def close(self, error):
-        if error:
-            logger.error(f"Writer error: {error}")
 
 # ================== Streaming App ==================
 class RealTimeStreaming():
@@ -84,10 +73,14 @@ class RealTimeStreaming():
 
             logger.info("🔄 Data transformed to structured format.")
 
-            # Realtime foreach writer
+            # Use foreachBatch for realtime-like printing
+            def print_batch(batch_df, batch_id):
+                for row in batch_df.collect():
+                    print(f"💳 Transaction received: {row.asDict()}")
+
             query = transactions_df.writeStream \
                 .outputMode("append") \
-                .foreach(ConsoleWriter()) \
+                .foreachBatch(print_batch) \
                 .start()
 
             logger.info("🚀 Streaming query started.")
