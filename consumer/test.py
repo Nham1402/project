@@ -11,7 +11,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 KAFKA_CONFIG = {
-    "bootstrap.servers": "192.168.235.136:9092"  
+    "bootstrap.servers": "192.168.235.136:9092"
 }
 
 TRANSACTION_SCHEMA = StructType([
@@ -33,9 +33,9 @@ TRANSACTION_SCHEMA = StructType([
     StructField("account_number", StringType(), True),
     StructField("channel", StringType(), True),
     StructField("description", StringType(), True),
-    StructField("created_timestamp", TimestampType(), True),
-    StructField("processed_timestamp", TimestampType(), True),
-    StructField("updated_timestamp", TimestampType(), True)
+    StructField("created_timestamp", StringType(), True),   # debug để xem raw string
+    StructField("processed_timestamp", StringType(), True),
+    StructField("updated_timestamp", StringType(), True)
 ])
 
 class RealTimeStreaming():
@@ -59,20 +59,32 @@ class RealTimeStreaming():
 
             logger.info("📡 Kafka stream loaded.")
 
-            transactions_df = df.selectExpr("CAST(value AS STRING) as json_str") \
-                .select(from_json(col("json_str"), TRANSACTION_SCHEMA).alias("data")) \
-                .select("data.*")
+            # In raw message trước để debug
+            raw_df = df.selectExpr("CAST(value AS STRING) as raw_message")
 
-            logger.info("🔄 Data transformed to structured format.")
-
-            query = transactions_df.writeStream \
+            query_raw = raw_df.writeStream \
                 .outputMode("append") \
                 .format("console") \
                 .option("truncate", "false") \
                 .start()
 
-            logger.info("🚀 Streaming query started.")
-            query.awaitTermination()
+            logger.info("👀 Raw Kafka message printing...")
+
+            # Nếu raw OK → parse JSON
+            transactions_df = raw_df.select(
+                from_json(col("raw_message"), TRANSACTION_SCHEMA).alias("data")
+            ).select("data.*")
+
+            query_json = transactions_df.writeStream \
+                .outputMode("append") \
+                .format("console") \
+                .option("truncate", "false") \
+                .start()
+
+            logger.info("🚀 JSON parsing stream started.")
+
+            query_raw.awaitTermination()
+            query_json.awaitTermination()
 
         except Exception as e:
             logger.error(f"❌ Error in streaming: {e}")
@@ -80,6 +92,7 @@ class RealTimeStreaming():
         finally:
             self.spark.stop()
             logger.info("🛑 Spark session stopped.")
+
 
 if __name__ == "__main__":
     app = RealTimeStreaming()
