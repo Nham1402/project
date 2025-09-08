@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, from_json, regexp_replace
+from pyspark.sql.functions import col, from_json, to_timestamp
 from pyspark.sql.types import *
 import logging
 import traceback
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # ================== Kafka config ==================
 KAFKA_CONFIG = {
-    "bootstrap.servers": "192.168.235.136:9092",   # Kafka broker
+    "bootstrap.servers": "192.168.235.136:9092",
     "topic": "transaction_data"
 }
 
@@ -22,7 +22,7 @@ TRANSACTION_SCHEMA = StructType([
     StructField("account_key", IntegerType(), True),
     StructField("customer_key", IntegerType(), True),
     StructField("location_key", IntegerType(), True),
-    StructField("event_key", StringType(), True),   # StringType để tránh parse lỗi
+    StructField("event_key", LongType(), True),   # fix: long thay vì string
     StructField("application_key", IntegerType(), True),
     StructField("transaction_id", StringType(), True),
     StructField("reference_number", StringType(), True),
@@ -37,9 +37,9 @@ TRANSACTION_SCHEMA = StructType([
     StructField("account_number", StringType(), True),
     StructField("channel", StringType(), True),
     StructField("description", StringType(), True),
-    StructField("created_timestamp", TimestampType(), True),
-    StructField("processed_timestamp", TimestampType(), True),
-    StructField("updated_timestamp", TimestampType(), True)
+    StructField("created_timestamp", StringType(), True),    # parse thủ công
+    StructField("processed_timestamp", StringType(), True),  # parse thủ công
+    StructField("updated_timestamp", StringType(), True)     # parse thủ công
 ])
 
 # ================== Streaming App ==================
@@ -47,11 +47,11 @@ class RealTimeStreaming():
     def __init__(self):
         self.spark = SparkSession.builder \
             .appName("RealtimeKafkaConsole") \
-            .master("local[*]") \
+            .master("yarn") \
             .config("spark.sql.shuffle.partitions", "2") \
             .getOrCreate()
         self.spark.sparkContext.setLogLevel("ERROR")
-        logger.info("✅ Spark Session created (local mode).")
+        logger.info("✅ Spark Session created (YARN mode).")
 
     def start_streaming(self):
         try:
@@ -65,11 +65,13 @@ class RealTimeStreaming():
 
             logger.info("📡 Kafka stream loaded.")
 
-            # Convert value -> string -> fix quotes -> parse JSON
+            # Parse JSON
             transactions_df = df.selectExpr("CAST(value AS STRING) as json_str") \
-                .withColumn("json_str", regexp_replace("json_str", "'", "\"")) \
                 .select(from_json(col("json_str"), TRANSACTION_SCHEMA).alias("data")) \
-                .select("data.*")
+                .select("data.*") \
+                .withColumn("created_timestamp", to_timestamp("created_timestamp", "yyyy-MM-dd HH:mm:ss")) \
+                .withColumn("processed_timestamp", to_timestamp("processed_timestamp", "yyyy-MM-dd HH:mm:ss")) \
+                .withColumn("updated_timestamp", to_timestamp("updated_timestamp", "yyyy-MM-dd HH:mm:ss"))
 
             logger.info("🔄 Data transformed to structured format.")
 
