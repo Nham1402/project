@@ -1,24 +1,29 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import *
+from pyspark.sql.functions import col, from_json, regexp_replace
 from pyspark.sql.types import *
+from pyspark.sql.streaming import ForeachWriter
 import logging
 import traceback
 
+# ================== Logging ==================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
+# ================== Kafka config ==================
 KAFKA_CONFIG = {
-    "bootstrap.servers": "192.168.235.136:9092"
+    "bootstrap.servers": "192.168.235.136:9092",   # Kafka broker
+    "topic": "transaction_data"
 }
 
+# ================== Schema ==================
 TRANSACTION_SCHEMA = StructType([
     StructField("account_key", IntegerType(), True),
     StructField("customer_key", IntegerType(), True),
     StructField("location_key", IntegerType(), True),
-    StructField("event_key", IntegerType(), True),
+    StructField("event_key", StringType(), True),   # dùng StringType cho an toàn
     StructField("application_key", IntegerType(), True),
     StructField("transaction_id", StringType(), True),
     StructField("reference_number", StringType(), True),
@@ -33,11 +38,22 @@ TRANSACTION_SCHEMA = StructType([
     StructField("account_number", StringType(), True),
     StructField("channel", StringType(), True),
     StructField("description", StringType(), True),
-    StructField("created_timestamp", StringType(), True),   # debug để xem raw string
-    StructField("processed_timestamp", StringType(), True),
-    StructField("updated_timestamp", StringType(), True)
+    StructField("created_timestamp", TimestampType(), True),
+    StructField("processed_timestamp", TimestampType(), True),
+    StructField("updated_timestamp", TimestampType(), True)
 ])
 
+# ================== Custom writer ==================
+class ConsoleWriter(ForeachWriter):
+    def open(self, partition_id, epoch_id):
+        return True
+    def process(self, row):
+        print(f"💳 Transaction received: {row.asDict()}")
+    def close(self, error):
+        if error:
+            logger.error(f"Writer error: {error}")
+
+# ================== Streaming App ==================
 class RealTimeStreaming():
     def __init__(self):
         self.spark = SparkSession.builder \
@@ -50,41 +66,32 @@ class RealTimeStreaming():
 
     def start_streaming(self):
         try:
+            # Read from Kafka
             df = self.spark.readStream \
                 .format("kafka") \
                 .option("kafka.bootstrap.servers", KAFKA_CONFIG["bootstrap.servers"]) \
-                .option("subscribe", "transaction_data") \
-                .option("startingOffsets", "earliest") \
+                .option("subscribe", KAFKA_CONFIG["topic"]) \
+                .option("startingOffsets", "latest") \
                 .load()
 
             logger.info("📡 Kafka stream loaded.")
 
-            # In raw message trước để debug
-            raw_df = df.selectExpr("CAST(value AS STRING) as raw_message")
+            # Convert value -> string -> fix quotes -> parse JSON
+            transactions_df = df.selectExpr("CAST(value AS STRING) as json_str") \
+                .withColumn("json_str", regexp_replace("json_str", "'", "\"")) \
+                .select(from_json(col("json_str"), TRANSACTION_SCHEMA).alias("data")) \
+                .select("data.*")
 
-            query_raw = raw_df.writeStream \
+            logger.info("🔄 Data transformed to structured format.")
+
+            # Realtime foreach writer
+            query = transactions_df.writeStream \
                 .outputMode("append") \
-                .format("console") \
-                .option("truncate", "false") \
+                .foreach(ConsoleWriter()) \
                 .start()
 
-            logger.info("👀 Raw Kafka message printing...")
-
-            # Nếu raw OK → parse JSON
-            transactions_df = raw_df.select(
-                from_json(col("raw_message"), TRANSACTION_SCHEMA).alias("data")
-            ).select("data.*")
-
-            query_json = transactions_df.writeStream \
-                .outputMode("append") \
-                .format("console") \
-                .option("truncate", "false") \
-                .start()
-
-            logger.info("🚀 JSON parsing stream started.")
-
-            query_raw.awaitTermination()
-            query_json.awaitTermination()
+            logger.info("🚀 Streaming query started.")
+            query.awaitTermination()
 
         except Exception as e:
             logger.error(f"❌ Error in streaming: {e}")
@@ -93,7 +100,7 @@ class RealTimeStreaming():
             self.spark.stop()
             logger.info("🛑 Spark session stopped.")
 
-
+# ================== Main ==================
 if __name__ == "__main__":
     app = RealTimeStreaming()
     app.start_streaming()
