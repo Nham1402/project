@@ -45,13 +45,16 @@ TRANSACTION_SCHEMA = StructType([
 # ================== Streaming App ==================
 class RealTimeStreaming():
     def __init__(self):
+        # Removed .master("yarn") - let spark-submit handle this
         self.spark = SparkSession.builder \
             .appName("RealtimeKafkaConsole") \
-            .master("yarn") \
             .config("spark.sql.shuffle.partitions", "2") \
+            .config("spark.sql.adaptive.enabled", "true") \
+            .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
             .getOrCreate()
-        self.spark.sparkContext.setLogLevel("ERROR")
-        logger.info("✅ Spark Session created (local mode).")
+        
+        self.spark.sparkContext.setLogLevel("WARN")
+        logger.info("✅ Spark Session created.")
 
     def start_streaming(self):
         try:
@@ -61,6 +64,9 @@ class RealTimeStreaming():
                 .option("kafka.bootstrap.servers", KAFKA_CONFIG["bootstrap.servers"]) \
                 .option("subscribe", KAFKA_CONFIG["topic"]) \
                 .option("startingOffsets", "latest") \
+                .option("failOnDataLoss", "false") \
+                .option("kafka.session.timeout.ms", "30000") \
+                .option("kafka.request.timeout.ms", "40000") \
                 .load()
 
             logger.info("📡 Kafka stream loaded.")
@@ -69,18 +75,18 @@ class RealTimeStreaming():
             transactions_df = df.selectExpr("CAST(value AS STRING) as json_str") \
                 .withColumn("json_str", regexp_replace("json_str", "'", "\"")) \
                 .select(from_json(col("json_str"), TRANSACTION_SCHEMA).alias("data")) \
-                .select("data.*")
+                .select("data.*") \
+                .filter(col("transaction_id").isNotNull())
 
             logger.info("🔄 Data transformed to structured format.")
 
-            # Use foreachBatch for realtime-like printing
-            def print_batch(batch_df, batch_id):
-                for row in batch_df.collect():
-                    print(f"💳 Transaction received: {row.asDict()}")
-
+            # Simple console output for YARN cluster
             query = transactions_df.writeStream \
                 .outputMode("append") \
-                .foreachBatch(print_batch) \
+                .format("console") \
+                .option("truncate", "false") \
+                .option("numRows", 20) \
+                .trigger(processingTime="10 seconds") \
                 .start()
 
             logger.info("🚀 Streaming query started.")
@@ -95,5 +101,10 @@ class RealTimeStreaming():
 
 # ================== Main ==================
 if __name__ == "__main__":
-    app = RealTimeStreaming()
-    app.start_streaming()
+    try:
+        logger.info("🚀 Starting Realtime Kafka Streaming App...")
+        app = RealTimeStreaming()
+        app.start_streaming()
+    except Exception as e:
+        logger.error(f"❌ Failed to start application: {e}")
+        traceback.print_exc()
