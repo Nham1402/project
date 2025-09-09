@@ -32,7 +32,6 @@ CONSUMER_CONFIG = {
     'heartbeat.interval.ms': 10000,
     'max.poll.interval.ms': 300000,
     'fetch.min.bytes': 1,
-    'fetch.max.wait.ms': 500
 }
 
 class RealTimeKafkaProcessor:
