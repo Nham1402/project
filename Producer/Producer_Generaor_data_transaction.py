@@ -5,7 +5,6 @@ import threading
 import random
 from datetime import datetime
 from dotenv import load_dotenv
-import json
 
 # Thêm sys.path để import local module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -64,7 +63,7 @@ class TransactionProducer:
                 data = self.generator.generator_data_transaction()
 
                 # Convert thành string (nên dùng json.dumps nếu là dict)
-                message = json.dumps(data , default=str)
+                message = str(data)
 
                 # Gửi vào Kafka
                 self.producer.produce(
