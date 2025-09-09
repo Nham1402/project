@@ -1,8 +1,12 @@
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, from_json, regexp_replace
-from pyspark.sql.types import *
+import json
 import logging
 import traceback
+from datetime import datetime
+from typing import Dict, Any
+from confluent_kafka import Consumer, KafkaError
+from confluent_kafka.admin import AdminClient
+import threading
+import time
 
 # ================== Logging ==================
 logging.basicConfig(
@@ -11,100 +15,250 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ================== Kafka config ==================
+# ================== Kafka Config ==================
 KAFKA_CONFIG = {
-    "bootstrap.servers": "192.168.235.136:9092",  
+    "bootstrap.servers": "192.168.235.136:9092",
     "topic": "transaction_data"
 }
 
-# ================== Schema ==================
-TRANSACTION_SCHEMA = StructType([
-    StructField("account_key", IntegerType(), True),
-    StructField("customer_key", IntegerType(), True),
-    StructField("location_key", IntegerType(), True),
-    StructField("event_key", StringType(), True),  
-    StructField("application_key", IntegerType(), True),
-    StructField("transaction_id", StringType(), True),
-    StructField("reference_number", StringType(), True),
-    StructField("transaction_type", StringType(), True),
-    StructField("transaction_category", StringType(), True),
-    StructField("transaction_amount", DoubleType(), True),
-    StructField("transaction_status", StringType(), True),
-    StructField("fee_amount", DoubleType(), True),
-    StructField("tax_amount", DoubleType(), True),
-    StructField("net_amount", DoubleType(), True),
-    StructField("currency", StringType(), True),
-    StructField("account_number", StringType(), True),
-    StructField("channel", StringType(), True),
-    StructField("description", StringType(), True),
-    StructField("created_timestamp", TimestampType(), True),
-    StructField("processed_timestamp", TimestampType(), True),
-    StructField("updated_timestamp", TimestampType(), True)
-])
+# ================== Consumer Config ==================
+CONSUMER_CONFIG = {
+    'bootstrap.servers': KAFKA_CONFIG["bootstrap.servers"],
+    'group.id': 'realtime_transaction_processor',
+    'auto.offset.reset': 'latest',
+    'enable.auto.commit': True,
+    'auto.commit.interval.ms': 1000,
+    'session.timeout.ms': 30000,
+    'heartbeat.interval.ms': 10000,
+    'max.poll.interval.ms': 300000,
+    'fetch.min.bytes': 1,
+    'fetch.max.wait.ms': 500
+}
 
-# ================== Streaming App ==================
-class RealTimeStreaming():
+class RealTimeKafkaProcessor:
     def __init__(self):
-        # Removed .master("yarn") - let spark-submit handle this
-        self.spark = SparkSession.builder \
-            .appName("RealtimeKafkaConsole") \
-            .config("spark.sql.shuffle.partitions", "2") \
-            .config("spark.sql.adaptive.enabled", "true") \
-            .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
-            .getOrCreate()
+        self.consumer = None
+        self.running = True
+        self.processed_count = 0
+        self.error_count = 0
+        self.start_time = time.time()
         
-        self.spark.sparkContext.setLogLevel("WARN")
-        logger.info("✅ Spark Session created.")
-
-    def start_streaming(self):
+    def connect_consumer(self):
+        """Initialize Kafka consumer"""
         try:
-            # Read from Kafka
-            df = self.spark.readStream \
-                .format("kafka") \
-                .option("kafka.bootstrap.servers", KAFKA_CONFIG["bootstrap.servers"]) \
-                .option("subscribe", KAFKA_CONFIG["topic"]) \
-                .option("startingOffsets", "latest") \
-                .option("failOnDataLoss", "false") \
-                .option("kafka.session.timeout.ms", "30000") \
-                .option("kafka.request.timeout.ms", "40000") \
-                .load()
-
-            logger.info("📡 Kafka stream loaded.")
-
-            # Convert value -> string -> fix quotes -> parse JSON
-            transactions_df = df.selectExpr("CAST(value AS STRING) as json_str") \
-                .withColumn("json_str", regexp_replace("json_str", "'", "\"")) \
-                .select(from_json(col("json_str"), TRANSACTION_SCHEMA).alias("data")) \
-                .select("data.*") \
-                .filter(col("transaction_id").isNotNull())
-
-            logger.info("🔄 Data transformed to structured format.")
-
-            # Simple console output for YARN cluster
-            query = transactions_df.writeStream \
-                .outputMode("append") \
-                .format("console") \
-                .option("truncate", "false") \
-                .option("numRows", 20) \
-                .trigger(processingTime="10 seconds") \
-                .start()
-
-            logger.info("🚀 Streaming query started.")
-            query.awaitTermination()
-
+            self.consumer = Consumer(CONSUMER_CONFIG)
+            self.consumer.subscribe([KAFKA_CONFIG["topic"]])
+            logger.info(f"✅ Connected to Kafka topic: {KAFKA_CONFIG['topic']}")
+            return True
         except Exception as e:
-            logger.error(f"❌ Error in streaming: {e}")
+            logger.error(f"❌ Failed to connect to Kafka: {e}")
+            return False
+    
+    def validate_transaction_data(self, data: Dict[str, Any]) -> bool:
+        """Validate transaction data structure"""
+        required_fields = ['transaction_id', 'transaction_amount', 'transaction_type']
+        
+        for field in required_fields:
+            if field not in data or data[field] is None:
+                logger.warning(f"⚠️ Missing required field: {field}")
+                return False
+        return True
+    
+    def process_transaction(self, transaction_data: Dict[str, Any]):
+        """Process individual transaction - customize this method"""
+        try:
+            # Basic validation
+            if not self.validate_transaction_data(transaction_data):
+                self.error_count += 1
+                return
+            
+            # Extract key fields
+            tx_id = transaction_data.get('transaction_id')
+            amount = transaction_data.get('transaction_amount', 0)
+            tx_type = transaction_data.get('transaction_type')
+            status = transaction_data.get('transaction_status')
+            channel = transaction_data.get('channel')
+            
+            # Custom processing logic here
+            if amount > 10000:  # High value transaction
+                logger.info(f"🚨 HIGH VALUE: ID={tx_id}, Amount={amount}, Type={tx_type}")
+            
+            if status == 'FAILED':
+                logger.warning(f"⚠️ FAILED TRANSACTION: ID={tx_id}, Amount={amount}")
+            
+            # Print summary for demo
+            logger.info(f"💳 Transaction: ID={tx_id[:8]}..., Amount=${amount}, Type={tx_type}, Channel={channel}")
+            
+            self.processed_count += 1
+            
+        except Exception as e:
+            logger.error(f"❌ Error processing transaction: {e}")
+            self.error_count += 1
+    
+    def parse_message(self, message_value: str) -> Dict[str, Any]:
+        """Parse Kafka message value"""
+        try:
+            # Try JSON first
+            return json.loads(message_value)
+        except json.JSONDecodeError:
+            try:
+                # Handle Python dict string format (fallback)
+                import ast
+                return ast.literal_eval(message_value)
+            except (ValueError, SyntaxError):
+                logger.error(f"❌ Cannot parse message: {message_value[:100]}...")
+                return {}
+    
+    def print_stats(self):
+        """Print processing statistics"""
+        elapsed = time.time() - self.start_time
+        rate = self.processed_count / elapsed if elapsed > 0 else 0
+        
+        logger.info(f"📊 Stats: Processed={self.processed_count}, Errors={self.error_count}, "
+                   f"Rate={rate:.2f} msg/sec, Runtime={elapsed:.1f}s")
+    
+    def start_processing(self):
+        """Start the main processing loop"""
+        if not self.connect_consumer():
+            return
+        
+        logger.info("🚀 Starting real-time transaction processing...")
+        
+        # Stats reporting thread
+        def stats_reporter():
+            while self.running:
+                time.sleep(30)  # Report every 30 seconds
+                if self.running:
+                    self.print_stats()
+        
+        stats_thread = threading.Thread(target=stats_reporter, daemon=True)
+        stats_thread.start()
+        
+        try:
+            while self.running:
+                msg = self.consumer.poll(timeout=1.0)
+                
+                if msg is None:
+                    continue
+                
+                if msg.error():
+                    if msg.error().code() == KafkaError._PARTITION_EOF:
+                        logger.debug("End of partition reached")
+                    else:
+                        logger.error(f"❌ Consumer error: {msg.error()}")
+                    continue
+                
+                # Process message
+                try:
+                    key = msg.key().decode('utf-8') if msg.key() else None
+                    value = msg.value().decode('utf-8')
+                    
+                    # Parse and process
+                    transaction_data = self.parse_message(value)
+                    if transaction_data:
+                        self.process_transaction(transaction_data)
+                    
+                except Exception as e:
+                    logger.error(f"❌ Error processing message: {e}")
+                    self.error_count += 1
+                
+        except KeyboardInterrupt:
+            logger.info("🛑 Received stop signal...")
+        except Exception as e:
+            logger.error(f"❌ Unexpected error: {e}")
             traceback.print_exc()
         finally:
-            self.spark.stop()
-            logger.info("🛑 Spark session stopped.")
+            self.cleanup()
+    
+    def cleanup(self):
+        """Cleanup resources"""
+        self.running = False
+        if self.consumer:
+            self.consumer.close()
+        
+        self.print_stats()
+        logger.info("✅ Kafka consumer stopped cleanly")
+
+# ================== Advanced Processing Examples ==================
+class AdvancedTransactionProcessor(RealTimeKafkaProcessor):
+    """Extended processor with advanced features"""
+    
+    def __init__(self):
+        super().__init__()
+        self.high_value_threshold = 50000
+        self.fraud_patterns = ['TEST', 'DUMMY', 'FAKE']
+        self.transaction_buffer = []
+        self.buffer_size = 100
+    
+    def detect_fraud(self, transaction_data: Dict[str, Any]) -> bool:
+        """Simple fraud detection logic"""
+        description = transaction_data.get('description', '').upper()
+        amount = transaction_data.get('transaction_amount', 0)
+        
+        # Check for suspicious patterns
+        if any(pattern in description for pattern in self.fraud_patterns):
+            return True
+        
+        # Check for unusual amounts
+        if amount > self.high_value_threshold:
+            return True
+            
+        return False
+    
+    def process_transaction(self, transaction_data: Dict[str, Any]):
+        """Enhanced transaction processing"""
+        try:
+            if not self.validate_transaction_data(transaction_data):
+                self.error_count += 1
+                return
+            
+            tx_id = transaction_data.get('transaction_id')
+            amount = transaction_data.get('transaction_amount', 0)
+            tx_type = transaction_data.get('transaction_type')
+            
+            # Fraud detection
+            if self.detect_fraud(transaction_data):
+                logger.warning(f"🚨 POTENTIAL FRAUD: ID={tx_id}, Amount={amount}")
+            
+            # Buffer transactions for batch processing
+            self.transaction_buffer.append(transaction_data)
+            
+            if len(self.transaction_buffer) >= self.buffer_size:
+                self.process_batch(self.transaction_buffer.copy())
+                self.transaction_buffer.clear()
+            
+            # Real-time logging
+            logger.info(f"💳 TX: {tx_id[:8]}... | ${amount:,.2f} | {tx_type}")
+            self.processed_count += 1
+            
+        except Exception as e:
+            logger.error(f"❌ Error in advanced processing: {e}")
+            self.error_count += 1
+    
+    def process_batch(self, transactions):
+        """Process batch of transactions"""
+        total_amount = sum(tx.get('transaction_amount', 0) for tx in transactions)
+        logger.info(f"📦 Batch processed: {len(transactions)} transactions, Total: ${total_amount:,.2f}")
 
 # ================== Main ==================
-if __name__ == "__main__":
+def main():
+    logger.info("🚀 Starting Real-Time Kafka Transaction Processor...")
+    
+    # Choose processor type
+    use_advanced = True  # Set to False for basic processing
+    
+    if use_advanced:
+        processor = AdvancedTransactionProcessor()
+        logger.info("Using Advanced Transaction Processor")
+    else:
+        processor = RealTimeKafkaProcessor()
+        logger.info("Using Basic Transaction Processor")
+    
     try:
-        logger.info("🚀 Starting Realtime Kafka Streaming App...")
-        app = RealTimeStreaming()
-        app.start_streaming()
+        processor.start_processing()
     except Exception as e:
-        logger.error(f"❌ Failed to start application: {e}")
+        logger.error(f"❌ Failed to start processor: {e}")
         traceback.print_exc()
+
+if __name__ == "__main__":
+    main()
