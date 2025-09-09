@@ -12,7 +12,7 @@ class SparkStreaming:
         load_dotenv()
 
         # Lấy Kafka broker từ env, nếu không có thì dùng mặc định
-        self.kafka_broker = os.getenv("KAFKA_BROKER", "192.168.235.126:9092")
+        self.kafka_broker = os.getenv("KAFKA_BROKER", "192.168.235.136:9092")
         self.kafka_topic = os.getenv("KAFKA_TOPIC", "transaction_data")
 
         self.spark = SparkSession.builder \
