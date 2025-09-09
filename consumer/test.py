@@ -47,10 +47,10 @@ class RealTimeKafkaProcessor:
         try:
             self.consumer = Consumer(CONSUMER_CONFIG)
             self.consumer.subscribe([KAFKA_CONFIG["topic"]])
-            logger.info(f"✅ Connected to Kafka topic: {KAFKA_CONFIG['topic']}")
+            logger.info(f"Connected to Kafka topic: {KAFKA_CONFIG['topic']}")
             return True
         except Exception as e:
-            logger.error(f"❌ Failed to connect to Kafka: {e}")
+            logger.error(f"Failed to connect to Kafka: {e}")
             return False
     
     def validate_transaction_data(self, data: Dict[str, Any]) -> bool:
@@ -59,7 +59,7 @@ class RealTimeKafkaProcessor:
         
         for field in required_fields:
             if field not in data or data[field] is None:
-                logger.warning(f"⚠️ Missing required field: {field}")
+                logger.warning(f"Missing required field: {field}")
                 return False
         return True
     
