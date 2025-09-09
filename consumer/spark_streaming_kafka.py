@@ -21,7 +21,7 @@ class SparkStreaming:
         """Bắt đầu streaming từ Kafka và ghi JSON vào HDFS mỗi 5 phút"""
         df = self.spark.readStream \
             .format("kafka") \
-            .option( "bootstrap.servers": "192.168.235.126:9092") \
+            .option( "bootstrap.servers", "192.168.235.126:9092") \
             .option("subscribe", "transaction_data") \
             .load()
 
